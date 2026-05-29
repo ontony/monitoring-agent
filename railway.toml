@@ -1,0 +1,7 @@
+[build]
+builder = "NIXPACKS"
+
+[deploy]
+startCommand = "python agent.py"
+cronSchedule = "0 8 * * *"
+restartPolicyType = "NEVER"
