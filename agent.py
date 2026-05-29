@@ -6,9 +6,9 @@ from datetime import datetime, timezone
 
 # ── Config ────────────────────────────────────────────────────────────────────
 SLACK_TOKEN       = os.environ["SLACK_BOT_TOKEN"]
-SOURCE_CHANNEL    = os.environ.get("SOURCE_CHANNEL", "C05MKV2869X")   # monitoring alerts
-DEST_CHANNEL      = os.environ.get("DEST_CHANNEL",   "C0ANSHX9LL8")   # digest destination
-BASELINE_ENV_VAR  = "BASELINE_JSON"   # Railway variable name where baseline is stored
+SOURCE_CHANNEL    = os.environ.get("SOURCE_CHANNEL", "C05MKV2869X")
+DEST_CHANNEL      = os.environ.get("DEST_CHANNEL",   "C0ANSHX9LL8")
+BASELINE_ENV_VAR  = "BASELINE_JSON"
 RAILWAY_TOKEN     = os.environ.get("RAILWAY_API_TOKEN", "")
 RAILWAY_SERVICE   = os.environ.get("RAILWAY_SERVICE_ID", "")
 RAILWAY_ENV       = os.environ.get("RAILWAY_ENVIRONMENT_ID", "")
@@ -53,9 +53,7 @@ def load_baseline():
 
 
 def save_baseline(baseline: dict):
-    """Update Railway variable via GraphQL API so next run picks up new baseline."""
     if not RAILWAY_TOKEN or not RAILWAY_SERVICE or not RAILWAY_ENV:
-        # Fallback: just print — user can copy-paste into Railway dashboard
         print("⚠️  Railway API credentials not set. New baseline (copy to Railway Variables):")
         print(f"BASELINE_JSON={json.dumps(baseline)}")
         return
@@ -88,10 +86,25 @@ def save_baseline(baseline: dict):
         print("✅ Baseline saved to Railway Variables")
 
 
+def parse_hosts(text):
+    """Extract all host names from a text string, handles both inline and multiline formats."""
+    unreachable = []
+    disk_low = []
+
+    for m in re.finditer(r"PU is unreachable\s*[-–—*]\s*([a-zA-Z0-9][\w\-]*)", text):
+        unreachable.append(m.group(1))
+
+    for m in re.finditer(r"PU root disk space is low\s*[-–—*]\s*([a-zA-Z0-9][\w\-]*)", text):
+        host = m.group(1)
+        host = re.sub(r"\.\s*<.*$", "", host).rstrip(".")
+        disk_low.append(host)
+
+    return unreachable, disk_low
+
+
 # ── Core logic ────────────────────────────────────────────────────────────────
 
 def fetch_today_alerts():
-    """Fetch today's messages from the monitoring channel and parse host names."""
     now = datetime.now(timezone.utc)
     today_start = datetime(now.year, now.month, now.day, tzinfo=timezone.utc).timestamp()
 
@@ -112,30 +125,17 @@ def fetch_today_alerts():
         messages = data.get("messages", [])
 
         for msg in messages:
-            # Alerts come as bot messages with attachments
+            # Combine all text from message and its attachments into one string
+            parts = [msg.get("text", "")]
             for att in msg.get("attachments", []):
-                text = att.get("text", "") + "\n" + att.get("fallback", "")
-                for line in text.split("\n"):
-                    ur = re.search(r"PU is unreachable\s*[-–—*]\s*([a-zA-Z0-9][\w\-]*)", line)
-                    if ur:
-                        unreachable.append(ur.group(1))
-                    dk = re.search(r"PU root disk space is low\s*[-–—*]\s*([a-zA-Z0-9][\w\-]*)", line)
-                    if dk:
-                        host = dk.group(1)
-                        host = re.sub(r"\.\s*<.*$", "", host).rstrip(".")
-                        disk_low.append(host)
+                parts.append(att.get("text", ""))
+                parts.append(att.get("fallback", ""))
+                parts.append(att.get("pretext", ""))
 
-            # Also check plain text messages
-            text = msg.get("text", "")
-            for line in text.split("\n"):
-                ur = re.search(r"PU is unreachable\s*[-–—*]\s*([a-zA-Z0-9][\w\-]*)", line)
-                if ur:
-                    unreachable.append(ur.group(1))
-                dk = re.search(r"PU root disk space is low\s*[-–—*]\s*([a-zA-Z0-9][\w\-]*)", line)
-                if dk:
-                    host = dk.group(1)
-                    host = re.sub(r"\.\s*<.*$", "", host).rstrip(".")
-                    disk_low.append(host)
+            full_text = " ".join(parts)
+            ur, dk = parse_hosts(full_text)
+            unreachable.extend(ur)
+            disk_low.extend(dk)
 
         next_cursor = data.get("response_metadata", {}).get("next_cursor", "")
         if not next_cursor:
