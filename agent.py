@@ -43,7 +43,11 @@ def load_baseline():
     if not raw:
         return {"unreachable": [], "disk_low": []}
     try:
-        return json.loads(raw)
+        data = json.loads(raw)
+        return {
+            "unreachable": data.get("unreachable", []),
+            "disk_low": data.get("disk_low", []),
+        }
     except Exception:
         return {"unreachable": [], "disk_low": []}
 
