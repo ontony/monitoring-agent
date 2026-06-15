@@ -121,10 +121,15 @@ def build_digest(today, history):
     res_ur  = [h for h in history["unreachable"] if h not in today["unreachable"]]
     res_dk  = [h for h in history["disk_low"]    if h not in today["disk_low"]]
     if not any([new_ur, new_dk, res_ur, res_dk]):
-        return (
-            f"📋 *Host Monitoring Digest* — No changes today.\n"
-            f"_({len(history['unreachable'])} unreachable, {len(history['disk_low'])} low disk — all known)_"
-        )
+        lines = ["📋 *Host Monitoring Digest* — Baseline refreshed, no new changes.\n"]
+        if history["unreachable"]:
+            lines.append(f"🔴 *Still unreachable* ({len(history['unreachable'])}):")
+            lines += [f"• {h}" for h in sorted(history["unreachable"])]
+            lines.append("")
+        if history["disk_low"]:
+            lines.append(f"💾 *Still low disk* ({len(history['disk_low'])}):")
+            lines += [f"• {h}" for h in sorted(history["disk_low"])]
+        return "\n".join(lines)
     lines = ["📋 *Host Monitoring Digest*\n"]
     if new_ur:
         lines.append(f"🆕 *Newly unreachable* ({len(new_ur)}):")
